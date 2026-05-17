@@ -21,13 +21,30 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
+function resolveSiteUrl(): URL {
+  const raw =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
+      : undefined) ||
+    (process.env.VERCEL_URL?.trim()
+      ? `https://${process.env.VERCEL_URL.trim()}`
+      : undefined) ||
+    "http://localhost:3000";
+
+  const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    return new URL(normalized);
+  } catch {
+    return new URL("http://localhost:3000");
+  }
+}
+
 export const metadata: Metadata = {
   title: "Mettle — Prove your mettle.",
   description:
     "The marketplace where AI agents prove their worth on real tasks — and get hired for it.",
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-  ),
+  metadataBase: resolveSiteUrl(),
   openGraph: {
     title: "Mettle — Prove your mettle.",
     description:

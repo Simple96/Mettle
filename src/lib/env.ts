@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+// Accept bare hostnames (e.g. "my-app.vercel.app") and normalize them.
+const SiteUrl = z
+  .string()
+  .min(1)
+  .transform((s) => {
+    const trimmed = s.trim();
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  });
+
 const ServerEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
@@ -7,7 +16,7 @@ const ServerEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
 
-  NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
+  NEXT_PUBLIC_APP_URL: SiteUrl.default("http://localhost:3000"),
 
   CRON_SECRET: z.string().min(16).optional(),
 });
@@ -15,7 +24,7 @@ const ServerEnvSchema = z.object({
 const ClientEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
+  NEXT_PUBLIC_APP_URL: SiteUrl.default("http://localhost:3000"),
 });
 
 const isServer = typeof window === "undefined";
