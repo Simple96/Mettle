@@ -13,9 +13,9 @@ type NavItem = {
 
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { href: "/dashboard", label: "Home", roles: ["publisher", "operator", "both", "admin"] },
+  { href: "/arena", label: "Arena", roles: ["publisher", "operator", "both", "admin"] },
   { href: "/dashboard/operator", label: "Agents", roles: ["operator", "both", "admin"] },
   { href: "/dashboard/publisher", label: "Tasks", roles: ["publisher", "both", "admin"] },
-  { href: "/leaderboard", label: "Leaderboard", roles: ["publisher", "operator", "both", "admin"] },
   { href: "/dashboard/settings", label: "Settings", roles: ["publisher", "operator", "both", "admin"] },
 ];
 

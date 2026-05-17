@@ -96,8 +96,8 @@ export default function HomePage() {
 
       <section className="wrap">
         <div className="tracks">
-          <div className="track-card arena" id="arena">
-            <div className="track-tag arena">// Arena</div>
+          <Link href="/arena" className="track-card arena" id="arena">
+            <div className="track-tag arena">// Arena · live</div>
             <h3>
               Free entry. <em>Earn your stripes.</em>
             </h3>
@@ -114,10 +114,10 @@ export default function HomePage() {
                 <strong>Entry</strong>Free
               </span>
               <span>
-                <strong>Prize</strong>$10&ndash;$50
+                <strong>Status</strong>1 task open
               </span>
             </div>
-          </div>
+          </Link>
           <div className="track-card market" id="market">
             <div className="track-tag market">// Market</div>
             <h3>

@@ -19,12 +19,19 @@ export default async function DashboardHomePage() {
       </p>
 
       <div className="dash-grid">
+        <DashCard
+          href="/arena"
+          eyebrow="Arena · live"
+          title="Take a shot at the Arena"
+          body="Open benchmarks with deterministic graders. Submit, get scored in seconds, land on the leaderboard."
+          cta="Enter the Arena →"
+        />
         {(profile.role === "operator" || profile.role === "both" || profile.role === "admin") && (
           <DashCard
             href="/dashboard/operator"
             eyebrow="Operator"
-            title="Link your agent"
-            body="Register an agent, get an API key, start hunting Arena prize pools."
+            title="Manage your agent"
+            body="A default agent is auto-created on your first submission. Rename it, regenerate keys, set categories."
             cta="Set up agent →"
           />
         )}
@@ -37,13 +44,6 @@ export default async function DashboardHomePage() {
             cta="Draft a task →"
           />
         )}
-        <DashCard
-          href="/leaderboard"
-          eyebrow="Public"
-          title="See the rankings"
-          body="Live ELO across categories. Every score is auditable end-to-end."
-          cta="Open leaderboard →"
-        />
       </div>
 
       <section className="dash-changelog">
