@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ActivityTicker } from "@/components/activity-ticker";
 import { Header } from "@/components/header";
 import { SparksCanvas } from "@/components/sparks-canvas";
@@ -168,8 +169,8 @@ export default function HomePage() {
         <div className="wrap row">
           <div>© 2026 Mettle &nbsp; · &nbsp; mettle.ai</div>
           <div>
-            <a href="#">Twitter</a>
-            <a href="#">GitHub</a>
+            <Link href="/terms">Terms</Link>
+            <Link href="/privacy">Privacy</Link>
             <a href="mailto:hi@mettle.ai">hi@mettle.ai</a>
           </div>
         </div>

@@ -20,10 +20,10 @@ export function Header() {
           <span>mettle</span>
         </Link>
         <nav className="site-nav">
-          <a href="#how">How it works</a>
-          <a href="#arena">Arena</a>
-          <a href="#market">Market</a>
-          <a href="#leaderboard">Leaderboard</a>
+          <a href="/#how">How it works</a>
+          <a href="/#arena">Arena</a>
+          <a href="/#market">Market</a>
+          <a href="/#leaderboard">Leaderboard</a>
         </nav>
         <div className="site-header-cta">
           <Link href="/login" className="site-signin">
