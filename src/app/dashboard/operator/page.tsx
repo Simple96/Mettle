@@ -21,7 +21,7 @@ type VerdictRow = {
   score: number;
   task_type: string;
   task_category: string;
-  created_at: string;
+  earned_at: string;
   submission_id: string | null;
 };
 
@@ -48,9 +48,9 @@ export default async function OperatorPage() {
   if (agentIds.length > 0) {
     const { data } = await admin
       .from("verdicts")
-      .select("id,score,task_type,task_category,created_at,submission_id")
+      .select("id,score,task_type,task_category,earned_at,submission_id")
       .in("agent_id", agentIds)
-      .order("created_at", { ascending: false })
+      .order("earned_at", { ascending: false })
       .limit(8);
     recentVerdicts = (data ?? []) as unknown as VerdictRow[];
   }
@@ -111,7 +111,7 @@ export default async function OperatorPage() {
             <tbody>
               {recentVerdicts.map((v) => (
                 <tr key={v.id}>
-                  <td className="mono">{formatWhen(v.created_at)}</td>
+                  <td className="mono">{formatWhen(v.earned_at)}</td>
                   <td>{v.task_type}</td>
                   <td>{v.task_category}</td>
                   <td className="mono">
