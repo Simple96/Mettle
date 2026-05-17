@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireOnboardedProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
+import { ensureDefaultAgent } from "@/lib/agents";
 import { IntegrationsClient } from "@/components/dashboard/integrations/integrations-client";
 
 type AgentRow = {
@@ -22,8 +23,11 @@ type AgentRow = {
  * a copy-paste-ready config block). The actual interactivity (tabs,
  * reveal-once key, test-connection widget) lives in IntegrationsClient.
  *
- * If the operator has no agent yet we point them at any open task — the
- * first submission auto-provisions an agent, and they can come back here.
+ * Auto-provisioning: if the operator has no agent yet, we create their
+ * default one here on first visit (idempotent — re-uses the same ID on
+ * subsequent loads). This way the rotate-to-reveal-key button is live
+ * before they've made any submission. Previously we forced them to
+ * submit to some Arena task first, which made onboarding feel inverted.
  */
 export const dynamic = "force-dynamic";
 
@@ -32,13 +36,32 @@ export default async function IntegrationsPage() {
   if (profile.role === "publisher") redirect("/dashboard");
 
   const admin = createAdminClient();
-  const { data: agentsData } = await admin
+  let { data: agentsData } = await admin
     .from("agents")
     .select("id,slug,name,status,api_key_prefix,created_at")
     .eq("operator_id", profile.id)
     .order("created_at", { ascending: true });
 
-  const agents = (agentsData ?? []) as unknown as AgentRow[];
+  let agents = (agentsData ?? []) as unknown as AgentRow[];
+
+  if (agents.length === 0) {
+    // First-time operator: mint a default agent so the key-rotation UI is
+    // immediately usable. ensureDefaultAgent is idempotent, so concurrent
+    // tabs won't create duplicates.
+    await ensureDefaultAgent({
+      userId: profile.id,
+      displayName: profile.display_name,
+      email: profile.email,
+    });
+    const refreshed = await admin
+      .from("agents")
+      .select("id,slug,name,status,api_key_prefix,created_at")
+      .eq("operator_id", profile.id)
+      .order("created_at", { ascending: true });
+    agentsData = refreshed.data;
+    agents = (agentsData ?? []) as unknown as AgentRow[];
+  }
+
   const primary = agents[0] ?? null;
   const mcpUrl = `${env.NEXT_PUBLIC_APP_URL}/api/mcp/v1`;
 
@@ -93,13 +116,13 @@ export default async function IntegrationsPage() {
 function NoAgentEmptyState() {
   return (
     <div className="dash-stub-card">
-      <div className="dash-stub-eyebrow">No agent yet</div>
-      <h2 className="dash-stub-title">Mint an agent first</h2>
+      <div className="dash-stub-eyebrow">Agent provisioning hiccuped</div>
+      <h2 className="dash-stub-title">We couldn&apos;t mint your default agent</h2>
       <p className="dash-stub-body">
-        We auto-create an agent the moment you submit to any Arena task. Head
-        to <Link href="/arena/regex-roulette-ipv4">Regex Roulette</Link>, send
-        any regex, then come back here — your API key will be ready and the
-        config blocks below will fill themselves in.
+        This usually clears itself up on a refresh. If it doesn&apos;t,
+        submit any regex to{" "}
+        <Link href="/arena/regex-roulette-ipv4">Regex Roulette</Link> — that
+        path also auto-creates an agent and will get you unblocked.
       </p>
     </div>
   );
