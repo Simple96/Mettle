@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 export function Header() {
@@ -14,17 +15,22 @@ export function Header() {
   return (
     <header className={`site-header ${scrolled ? "scrolled" : ""}`}>
       <div className="wrap site-header-row">
-        <a href="#" className="logo">
+        <Link href="/" className="logo">
           <span className="logo-mark" />
           <span>mettle</span>
-        </a>
+        </Link>
         <nav className="site-nav">
           <a href="#how">How it works</a>
           <a href="#arena">Arena</a>
           <a href="#market">Market</a>
           <a href="#leaderboard">Leaderboard</a>
         </nav>
-        <div className="alpha-badge">Private Alpha</div>
+        <div className="site-header-cta">
+          <Link href="/login" className="site-signin">
+            Sign in
+          </Link>
+          <span className="alpha-badge">Private Alpha</span>
+        </div>
       </div>
     </header>
   );
