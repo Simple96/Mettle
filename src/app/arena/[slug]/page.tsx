@@ -100,10 +100,18 @@ export default async function ArenaTaskPage(props: {
   const config = task.auto_grader_config as {
     kind?: string;
     max_regex_length?: number;
+    max_plan_length?: number;
     test_cases?: Array<{ input: string; should_match: boolean; weight?: number }>;
+    scenario?: { orders?: unknown[] };
   };
-  const totalCases = config.test_cases?.length ?? 0;
   const grader = config.kind ?? "auto";
+  const isRiderBench = grader === "rider_bench";
+  // Headline stat varies per grader: visible test-case count for regex,
+  // order count for rider_bench.
+  const headlineStatLabel = isRiderBench ? "Orders" : "Test cases";
+  const headlineStatValue = isRiderBench
+    ? (Array.isArray(config.scenario?.orders) ? config.scenario!.orders!.length : 0)
+    : (config.test_cases?.length ?? 0);
 
   return (
     <article className="arena-task">
@@ -142,8 +150,8 @@ export default async function ArenaTaskPage(props: {
             <dd className="mono">{grader}</dd>
           </div>
           <div>
-            <dt>Test cases</dt>
-            <dd className="mono">{totalCases}</dd>
+            <dt>{headlineStatLabel}</dt>
+            <dd className="mono">{headlineStatValue}</dd>
           </div>
           <div>
             <dt>Closes</dt>
@@ -166,7 +174,11 @@ export default async function ArenaTaskPage(props: {
 
         <div className="arena-task-side">
           {task.mcp_only ? (
-            <McpOnlyCallout taskSlug={task.slug} signedIn={!!user} />
+            <McpOnlyCallout
+              taskSlug={task.slug}
+              signedIn={!!user}
+              grader={grader}
+            />
           ) : (
             <>
               <h2 className="arena-task-h2">
@@ -218,15 +230,19 @@ export default async function ArenaTaskPage(props: {
                 <th className="rank">#</th>
                 <th>Agent</th>
                 <th className="score">Score</th>
-                <th className="len">Regex len</th>
+                <th className="len">{isRiderBench ? "Plan len" : "Regex len"}</th>
                 <th className="when">When</th>
               </tr>
             </thead>
             <tbody>
               {leaderboard.map((row, idx) => {
-                const regexLength =
-                  (row.audit_log as { regex_length?: number } | null)
-                    ?.regex_length ?? null;
+                const audit = row.audit_log as {
+                  regex_length?: number;
+                  plan_length?: number;
+                } | null;
+                const sizeMetric = isRiderBench
+                  ? audit?.plan_length ?? null
+                  : audit?.regex_length ?? null;
                 return (
                   <tr key={row.id}>
                     <td className="rank">
@@ -239,7 +255,7 @@ export default async function ArenaTaskPage(props: {
                       <div className="agent-slug mono">@{row.agent.slug}</div>
                     </td>
                     <td className="score mono">{row.final_score.toFixed(2)}</td>
-                    <td className="len mono">{regexLength ?? "—"}</td>
+                    <td className="len mono">{sizeMetric ?? "—"}</td>
                     <td className="when mono">
                       {new Date(row.finalized_at).toLocaleString(undefined, {
                         month: "short",
@@ -267,10 +283,16 @@ export default async function ArenaTaskPage(props: {
 function McpOnlyCallout({
   taskSlug,
   signedIn,
+  grader,
 }: {
   taskSlug: string;
   signedIn: boolean;
+  grader: string;
 }) {
+  const submitSnippet =
+    grader === "rider_bench"
+      ? `submit({task_slug: "${taskSlug}", payload: {plan: [...]}})`
+      : `submit({task_slug: "${taskSlug}", payload: {regex: "..."}})`;
   return (
     <div className="arena-mcp-only">
       <h2 className="arena-task-h2">Agent-only task</h2>
@@ -294,13 +316,12 @@ function McpOnlyCallout({
           <code>get_task</code>.
         </li>
         <li>
-          Submit with <code>submit({"{"}task_slug: &quot;{taskSlug}&quot;,
-          payload: {"{"}regex: ...{"}}"})</code>.
+          Submit with <code>{submitSnippet}</code>.
         </li>
       </ol>
       <p className="arena-mcp-only-fine">
         No browser form on purpose — the point is to benchmark <em>agents</em>,
-        not humans pasting regex.
+        not humans pasting answers.
       </p>
     </div>
   );

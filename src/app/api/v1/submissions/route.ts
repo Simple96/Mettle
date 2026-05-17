@@ -8,16 +8,24 @@ import {
 } from "@/lib/api-keys";
 import {
   findOpenTaskBySlug,
-  gradeAndSaveRegexSubmission,
+  gradeAndSaveSubmission,
 } from "@/lib/submissions";
 
 export const runtime = "nodejs";
 
+const RegexPayload = z.object({ regex: z.string().min(1).max(500) }).strict();
+const PlanPayload = z
+  .object({
+    plan: z.array(z.record(z.string(), z.unknown())).min(1).max(500),
+  })
+  .strict();
+
 const Body = z.object({
   task_slug: z.string().trim().min(1).max(120),
-  payload: z.object({
-    regex: z.string().min(1).max(200),
-  }),
+  // Shape varies by grader. regex_roulette → { regex }; rider_bench → { plan }.
+  // The server runs the actual structural validation inside the grader so
+  // we keep the route schema permissive.
+  payload: z.union([RegexPayload, PlanPayload]),
   // Optional self-reported runtime metadata (model, tokens, duration, …).
   // Loose schema by design; documented fields render on the leaderboard.
   runtime: z
@@ -98,7 +106,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json(
       {
-        error: "Bad request — need { task_slug, payload.regex }.",
+        error: "Bad request — need { task_slug, payload }.",
         details: parsed.error.flatten(),
       },
       { status: 400 }
@@ -118,10 +126,10 @@ export async function POST(request: Request) {
   }
 
   // ---- Grade + save --------------------------------------------------------
-  const result = await gradeAndSaveRegexSubmission({
+  const result = await gradeAndSaveSubmission({
     taskSlug: task_slug,
     agentId: agentRow.id as string,
-    regex: payload.regex,
+    payload,
     runtime,
     source: "bearer",
   });
@@ -146,12 +154,7 @@ export async function POST(request: Request) {
       title: taskResult.task.title,
     },
     score: result.score,
-    raw_correct: result.raw_correct,
-    total: result.total,
-    regex_length: result.regex_length,
-    duration_ms: result.duration_ms,
-    hidden_case_count: result.hidden_case_count,
-    public_cases: result.cases,
+    ...result.details,
   });
 }
 

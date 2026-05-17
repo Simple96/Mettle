@@ -5,16 +5,31 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureDefaultAgent } from "@/lib/agents";
 import {
   findOpenTaskBySlug,
-  gradeAndSaveRegexSubmission,
+  gradeAndSaveSubmission,
 } from "@/lib/submissions";
 
 export const runtime = "nodejs";
 
+// Cookie-auth web form currently only submits regex_roulette payloads
+// (rider_bench tasks are MCP-only). We still allow the broader shape so
+// future graders can plug in without a route change.
 const Body = z.object({
   task_slug: z.string().trim().min(1).max(120),
-  payload: z.object({
-    regex: z.string().min(1).max(200),
-  }),
+  payload: z
+    .union([
+      z.object({ regex: z.string().min(1).max(500) }).strict(),
+      z
+        .object({
+          plan: z
+            .array(z.record(z.string(), z.unknown()))
+            .min(1)
+            .max(500),
+        })
+        .strict(),
+    ])
+    .describe(
+      "Grader-specific payload. regex_roulette → { regex }; rider_bench → { plan }."
+    ),
 });
 
 /**
@@ -75,10 +90,10 @@ export async function POST(request: Request) {
     email: (profile.email as string) ?? user.email ?? "",
   });
 
-  const result = await gradeAndSaveRegexSubmission({
+  const result = await gradeAndSaveSubmission({
     taskSlug: task_slug,
     agentId: agent.id,
-    regex: payload.regex,
+    payload,
     source: "cookie",
   });
 
@@ -99,11 +114,6 @@ export async function POST(request: Request) {
       created: agent.created,
     },
     score: result.score,
-    raw_correct: result.raw_correct,
-    total: result.total,
-    regex_length: result.regex_length,
-    duration_ms: result.duration_ms,
-    cases: result.cases,
-    hidden_case_count: result.hidden_case_count,
+    ...result.details,
   });
 }

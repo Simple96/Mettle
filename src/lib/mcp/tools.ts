@@ -4,7 +4,7 @@ import { z } from "zod";
 import { listOpenTasks, getPublicTaskBySlug } from "@/lib/tasks";
 import {
   findOpenTaskBySlug,
-  gradeAndSaveRegexSubmission,
+  gradeAndSaveSubmission,
 } from "@/lib/submissions";
 import type { McpAgent } from "@/lib/mcp/auth";
 
@@ -51,6 +51,47 @@ export const GetTaskInput = {
     .describe('Task slug, e.g. "agentic-ipv4-validator".'),
 };
 
+/**
+ * Payload schema is grader-specific. We accept either a regex_roulette
+ * payload (`{ regex }`) OR a rider_bench payload (`{ plan }`). The server
+ * picks the right grader based on the task's grader kind; if the payload
+ * doesn't match the task's grader, the response is a clean 400.
+ */
+const RegexPayload = z
+  .object({
+    regex: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe(
+        "Regex body (no leading/trailing slashes, no flags). For regex_roulette tasks."
+      ),
+  })
+  .strict();
+
+const PlanActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("move"),
+    to: z.tuple([z.number().int().min(0), z.number().int().min(0)]),
+  }),
+  z.object({ action: z.literal("pickup"), order: z.string().min(1) }),
+  z.object({ action: z.literal("deliver"), order: z.string().min(1) }),
+  z.object({ action: z.literal("charge") }),
+  z.object({ action: z.literal("wait") }),
+]);
+
+const PlanPayload = z
+  .object({
+    plan: z
+      .array(PlanActionSchema)
+      .min(1)
+      .max(500)
+      .describe(
+        "Ordered list of actions. For rider_bench tasks. Each action: move/pickup/deliver/charge/wait."
+      ),
+  })
+  .strict();
+
 export const SubmitInput = {
   task_slug: z
     .string()
@@ -58,16 +99,10 @@ export const SubmitInput = {
     .max(120)
     .describe("Slug of the task you are submitting to."),
   payload: z
-    .object({
-      regex: z
-        .string()
-        .min(1)
-        .max(200)
-        .describe(
-          "Regex body (no leading/trailing slashes, no flags). Required for regex_roulette tasks."
-        ),
-    })
-    .describe("Task-specific payload. Shape depends on the task's grader."),
+    .union([RegexPayload, PlanPayload])
+    .describe(
+      "Task-specific payload. Shape depends on the task's grader: regex_roulette uses { regex: '...' }; rider_bench uses { plan: [...] }."
+    ),
   runtime: z
     .object({
       model: z.string().optional(),
@@ -125,7 +160,33 @@ export async function handleGetTask(
       error: `Task '${args.slug}' is ${task.status}, not open.`,
     };
   }
-  const cfg = task.auto_grader_config;
+  const cfg = task.auto_grader_config as Record<string, unknown> & {
+    kind?: string;
+  };
+  const kind = cfg.kind ?? "unknown";
+
+  // Surface the full grader config — this is intentional. For
+  // regex_roulette only the *public* test_cases are in `auto_grader_config`
+  // (hidden cases live in task_hidden_data, untouched here). For
+  // rider_bench the scenario is entirely public; agents NEED the full
+  // scenario to plan.
+  const submitFormat =
+    kind === "regex_roulette"
+      ? { payload: { regex: "string" } }
+      : kind === "rider_bench"
+      ? {
+          payload: {
+            plan: [
+              { action: "move", to: ["x", "y"] },
+              { action: "pickup", order: "id" },
+              { action: "deliver", order: "id" },
+              { action: "charge" },
+              { action: "wait" },
+            ],
+          },
+        }
+      : null;
+
   return {
     ok: true as const,
     task: {
@@ -135,17 +196,8 @@ export async function handleGetTask(
       mcp_only: task.mcp_only,
       deadline: task.deadline,
       prompt: task.description,
-      grader: {
-        kind: cfg.kind,
-        max_regex_length: cfg.max_regex_length,
-      },
-      // Public test cases — agent uses these to iterate. The real score is
-      // computed on a larger hidden set.
-      public_samples: cfg.test_cases ?? [],
-      // Submission format hint for the agent.
-      submit_format: cfg.kind === "regex_roulette"
-        ? { payload: { regex: "string" } }
-        : null,
+      grader: cfg,
+      submit_format: submitFormat,
     },
   };
 }
@@ -154,7 +206,7 @@ export async function handleSubmit(
   agent: McpAgent,
   args: {
     task_slug: string;
-    payload: { regex: string };
+    payload: unknown;
     runtime?: Record<string, unknown>;
   }
 ) {
@@ -169,10 +221,10 @@ export async function handleSubmit(
     };
   }
 
-  const result = await gradeAndSaveRegexSubmission({
+  const result = await gradeAndSaveSubmission({
     taskSlug: args.task_slug,
     agentId: agent.id,
-    regex: args.payload.regex,
+    payload: args.payload,
     runtime: args.runtime,
     source: "mcp",
   });
@@ -189,16 +241,8 @@ export async function handleSubmit(
     ok: true as const,
     submission_id: result.submission_id,
     score: result.score,
-    raw_correct_public: result.cases.filter((c) => c.ok).length,
-    total_public: result.cases.length,
-    total_graded: result.total,
-    hidden_case_count: result.hidden_case_count,
-    regex_length: result.regex_length,
-    duration_ms: result.duration_ms,
     agent: { slug: agent.slug, name: agent.name },
-    // Per-public-case results so the agent can see what it got wrong on
-    // the visible samples. Hidden cases never leak.
-    public_cases: result.cases,
+    ...result.details,
   };
 }
 

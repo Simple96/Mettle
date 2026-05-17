@@ -5,6 +5,11 @@ import {
   gradeRegexRoulette,
   type CaseResult,
 } from "@/lib/grading/regex-roulette";
+import {
+  gradeRiderBench,
+  type RiderBenchConfig,
+  type TraceStep,
+} from "@/lib/grading/rider-bench";
 import { loadTaskForGrading } from "@/lib/tasks";
 
 export type SubmissionTask = {
@@ -19,6 +24,14 @@ export type SubmissionTask = {
 };
 
 export type AuthMethod = "cookie" | "bearer" | "mcp";
+
+/** Graders the platform knows how to run. */
+export type GraderKind = "regex_roulette" | "rider_bench";
+
+const SUPPORTED_GRADERS: ReadonlySet<GraderKind> = new Set([
+  "regex_roulette",
+  "rider_bench",
+]);
 
 /**
  * Look up a task by slug, validate it's open, the grader is supported, AND
@@ -65,11 +78,11 @@ export async function findOpenTaskBySlug(
   }
 
   const cfg = task.auto_grader_config as { kind?: string } | null;
-  if (!cfg || cfg.kind !== "regex_roulette") {
+  if (!cfg || !SUPPORTED_GRADERS.has(cfg.kind as GraderKind)) {
     return {
       ok: false,
       status: 501,
-      error: "Task does not use a supported grader yet.",
+      error: `Task uses unsupported grader '${cfg?.kind ?? "none"}'.`,
     };
   }
   return { ok: true, task };
@@ -91,25 +104,48 @@ export type SubmissionRuntime = {
   [k: string]: unknown;
 };
 
+/**
+ * Public, grader-specific detail bundle. We keep the response shape
+ * uniform (`ok / submission_id / score / grader / details`) so callers
+ * only need to spread `details` into their JSON response; the agent /
+ * client interprets the inner shape based on `grader`.
+ */
+export type SubmissionDetails =
+  | {
+      grader: "regex_roulette";
+      raw_correct: number;
+      total: number;
+      regex_length: number;
+      duration_ms: number;
+      // Public-case results only. Hidden cases never appear here.
+      public_cases: CaseResult[];
+      hidden_case_count: number;
+    }
+  | {
+      grader: "rider_bench";
+      plan_length: number;
+      duration_ms: number;
+      revenue: number;
+      max_revenue: number;
+      delivered_on_time: number;
+      delivered_late: number;
+      picked_up: number;
+      total_orders: number;
+      illegal_actions: number;
+      time_spent: number;
+      battery_remaining: number;
+      // Trace of every step (action + post-state). Full visibility since
+      // the scenario itself is fully public.
+      trace: TraceStep[];
+    };
+
 export type SubmissionResult =
   | {
       ok: true;
       submission_id: string;
       score: number;
-      raw_correct: number;
-      total: number;
-      regex_length: number;
-      duration_ms: number;
-      /**
-       * Per-case results for ONLY the public test cases. Hidden cases never
-       * appear here, even though they are part of the score.
-       */
-      cases: CaseResult[];
-      /**
-       * How many of the cases were graded total (public + hidden). Useful
-       * for the agent to know "I was graded on N cases, you see X."
-       */
-      hidden_case_count: number;
+      grader: GraderKind;
+      details: SubmissionDetails;
     }
   | {
       ok: false;
@@ -119,24 +155,24 @@ export type SubmissionResult =
     };
 
 /**
- * Grades a regex submission and persists submission + verdict.
- *
- * Loads hidden test cases via `loadTaskForGrading` (admin client / RLS-bypass)
- * and runs the grader over the merged public+hidden set. The response and
- * `audit_log` only contain PUBLIC case results — hidden cases are never
- * surfaced anywhere a client can read them.
+ * Generic submission entry point: takes a task slug + arbitrary payload,
+ * dispatches to the right grader, persists submission + verdict, returns
+ * a uniform result envelope.
  *
  * Shared between:
  *   - /api/submissions          (cookie auth, web form)
  *   - /api/v1/submissions       (bearer auth, REST)
  *   - MCP tool `submit`         (MCP transport)
+ *
+ * Hidden test data is loaded via `loadTaskForGrading` (admin client,
+ * RLS-bypass) when applicable. Hidden case content is stripped from the
+ * returned `details` before it ever crosses the trust boundary.
  */
-export async function gradeAndSaveRegexSubmission(input: {
+export async function gradeAndSaveSubmission(input: {
   taskSlug: string;
   agentId: string;
-  regex: string;
+  payload: unknown;
   runtime?: SubmissionRuntime;
-  // Which surface the submission came through; recorded in audit log.
   source?: AuthMethod;
 }): Promise<SubmissionResult> {
   const loaded = await loadTaskForGrading(input.taskSlug);
@@ -144,58 +180,192 @@ export async function gradeAndSaveRegexSubmission(input: {
     return { ok: false, status: 404, error: "task not found" };
   }
   const { task, fullGraderConfig } = loaded;
+  const kind = (fullGraderConfig as { kind?: string }).kind as GraderKind;
 
-  const publicCfg = (task.auto_grader_config ?? {}) as {
+  if (kind === "regex_roulette") {
+    return await runRegexRoulette({
+      task,
+      fullGraderConfig: fullGraderConfig as Parameters<typeof gradeRegexRoulette>[1],
+      input,
+    });
+  }
+  if (kind === "rider_bench") {
+    return await runRiderBench({
+      task,
+      fullGraderConfig: fullGraderConfig as RiderBenchConfig,
+      input,
+    });
+  }
+  return {
+    ok: false,
+    status: 501,
+    error: `Unsupported grader '${kind}'.`,
+  };
+}
+
+// ============================================================
+// Grader dispatchers (private)
+// ============================================================
+
+async function runRegexRoulette(args: {
+  task: Awaited<ReturnType<typeof loadTaskForGrading>> extends { task: infer T } | null
+    ? T
+    : never;
+  fullGraderConfig: Parameters<typeof gradeRegexRoulette>[1];
+  input: {
+    agentId: string;
+    payload: unknown;
+    runtime?: SubmissionRuntime;
+    source?: AuthMethod;
+  };
+}): Promise<SubmissionResult> {
+  // Payload validation specific to this grader.
+  const payload = args.input.payload as { regex?: unknown };
+  if (!payload || typeof payload.regex !== "string") {
+    return {
+      ok: false,
+      status: 400,
+      error: "Payload must be { regex: string } for regex_roulette tasks.",
+    };
+  }
+
+  const publicCfg = (args.task.auto_grader_config ?? {}) as {
     test_cases?: Array<unknown>;
   };
   const publicCount = Array.isArray(publicCfg.test_cases)
     ? publicCfg.test_cases.length
     : 0;
 
-  const result = gradeRegexRoulette(input.regex, fullGraderConfig);
-
+  const result = gradeRegexRoulette(payload.regex, args.fullGraderConfig);
   if (!result.ok) {
-    return {
-      ok: false,
-      status: 400,
-      error: result.message,
-      reason: result.reason,
-    };
+    return { ok: false, status: 400, error: result.message, reason: result.reason };
   }
 
-  // SPLIT cases: the first `publicCount` are public; the rest are hidden.
-  // We only ever return / persist the public ones.
+  // SPLIT cases: first `publicCount` are public; the rest hidden.
+  // Only public cases are persisted or returned.
   const publicCases = result.cases.slice(0, publicCount);
   const hiddenCaseCount = Math.max(0, result.cases.length - publicCount);
 
-  const admin = createAdminClient();
-  const auditLog = {
+  const details: SubmissionDetails = {
     grader: "regex_roulette",
-    submitted_regex: input.regex,
+    raw_correct: result.raw_correct,
+    total: result.total,
     regex_length: result.regex_length,
     duration_ms: result.duration_ms,
-    // Only public-case results in the audit log; hidden case results are
-    // intentionally discarded.
+    public_cases: publicCases,
+    hidden_case_count: hiddenCaseCount,
+  };
+  const auditLog = {
+    grader: "regex_roulette",
+    submitted_regex: payload.regex,
+    regex_length: result.regex_length,
+    duration_ms: result.duration_ms,
     cases: publicCases,
     hidden_case_count: hiddenCaseCount,
-    runtime: input.runtime ?? null,
-    source: input.source ?? null,
+    runtime: args.input.runtime ?? null,
+    source: args.input.source ?? null,
   };
+
+  return await persistAndReturn({
+    task: args.task,
+    agentId: args.input.agentId,
+    score: result.score,
+    auditLog,
+    details,
+    grader: "regex_roulette",
+  });
+}
+
+async function runRiderBench(args: {
+  task: Awaited<ReturnType<typeof loadTaskForGrading>> extends { task: infer T } | null
+    ? T
+    : never;
+  fullGraderConfig: RiderBenchConfig;
+  input: {
+    agentId: string;
+    payload: unknown;
+    runtime?: SubmissionRuntime;
+    source?: AuthMethod;
+  };
+}): Promise<SubmissionResult> {
+  const payload = args.input.payload as { plan?: unknown };
+  if (!payload || !Array.isArray(payload.plan)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Payload must be { plan: Action[] } for rider_bench tasks.",
+    };
+  }
+
+  const result = gradeRiderBench(payload.plan, args.fullGraderConfig);
+  if (!result.ok) {
+    return { ok: false, status: 400, error: result.message, reason: result.reason };
+  }
+
+  const details: SubmissionDetails = {
+    grader: "rider_bench",
+    plan_length: result.plan_length,
+    duration_ms: result.duration_ms,
+    revenue: result.revenue,
+    max_revenue: result.max_revenue,
+    delivered_on_time: result.delivered_on_time,
+    delivered_late: result.delivered_late,
+    picked_up: result.picked_up,
+    total_orders: result.total_orders,
+    illegal_actions: result.illegal_actions,
+    time_spent: result.time_spent,
+    battery_remaining: result.battery_remaining,
+    trace: result.trace,
+  };
+  const auditLog = {
+    grader: "rider_bench",
+    submitted_plan: payload.plan,
+    plan_length: result.plan_length,
+    duration_ms: result.duration_ms,
+    revenue: result.revenue,
+    max_revenue: result.max_revenue,
+    delivered_on_time: result.delivered_on_time,
+    delivered_late: result.delivered_late,
+    illegal_actions: result.illegal_actions,
+    trace: result.trace,
+    runtime: args.input.runtime ?? null,
+    source: args.input.source ?? null,
+  };
+
+  return await persistAndReturn({
+    task: args.task,
+    agentId: args.input.agentId,
+    score: result.score,
+    auditLog,
+    details,
+    grader: "rider_bench",
+  });
+}
+
+async function persistAndReturn(args: {
+  task: { id: string; category: string; type: string };
+  agentId: string;
+  score: number;
+  auditLog: unknown;
+  details: SubmissionDetails;
+  grader: GraderKind;
+}): Promise<SubmissionResult> {
+  const admin = createAdminClient();
   const nowIso = new Date().toISOString();
 
   const { data: upserted, error: upsertErr } = await admin
     .from("submissions")
     .upsert(
       {
-        task_id: task.id,
-        agent_id: input.agentId,
+        task_id: args.task.id,
+        agent_id: args.agentId,
         artifact_path: null,
         status: "judged",
-        auto_score: result.score,
+        auto_score: args.score,
         human_score: null,
-        final_score: result.score,
+        final_score: args.score,
         judge_notes: null,
-        audit_log: auditLog,
+        audit_log: args.auditLog,
         submitted_at: nowIso,
         finalized_at: nowIso,
       },
@@ -206,19 +376,15 @@ export async function gradeAndSaveRegexSubmission(input: {
 
   if (upsertErr || !upserted) {
     console.error("[submissions] upsert failed:", upsertErr);
-    return {
-      ok: false,
-      status: 500,
-      error: "Could not save submission.",
-    };
+    return { ok: false, status: 500, error: "Could not save submission." };
   }
 
   await admin.from("verdicts").insert({
-    agent_id: input.agentId,
+    agent_id: args.agentId,
     submission_id: upserted.id as string,
-    task_category: task.category,
-    task_type: task.type,
-    score: result.score,
+    task_category: args.task.category,
+    task_type: args.task.type,
+    score: args.score,
     rank: null,
     elo_delta: null,
   });
@@ -226,12 +392,8 @@ export async function gradeAndSaveRegexSubmission(input: {
   return {
     ok: true,
     submission_id: upserted.id as string,
-    score: result.score,
-    raw_correct: result.raw_correct,
-    total: result.total,
-    regex_length: result.regex_length,
-    duration_ms: result.duration_ms,
-    cases: publicCases,
-    hidden_case_count: hiddenCaseCount,
+    score: args.score,
+    grader: args.grader,
+    details: args.details,
   };
 }

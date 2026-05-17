@@ -2,6 +2,13 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { RegexRouletteConfig } from "@/lib/grading/regex-roulette";
+import type { RiderBenchConfig } from "@/lib/grading/rider-bench";
+
+/**
+ * Union of every grader config the platform supports. Callers can narrow
+ * by `kind` to access grader-specific fields.
+ */
+export type FullGraderConfig = RegexRouletteConfig | RiderBenchConfig;
 
 /**
  * Task views and grader-data loaders.
@@ -141,7 +148,7 @@ export async function getPublicTaskBySlug(
  */
 export async function loadTaskForGrading(slug: string): Promise<{
   task: TaskRow;
-  fullGraderConfig: RegexRouletteConfig;
+  fullGraderConfig: FullGraderConfig;
 } | null> {
   const admin = createAdminClient();
 
@@ -156,10 +163,12 @@ export async function loadTaskForGrading(slug: string): Promise<{
 
   const taskRow = task as unknown as TaskRow;
   const publicCfg = (taskRow.auto_grader_config ?? {}) as PublicGraderConfig;
+  // Non-regex graders (rider_bench, future kinds) don't have a hidden
+  // companion — their full scenario is in `auto_grader_config`.
   if (publicCfg.kind !== "regex_roulette") {
     return {
       task: taskRow,
-      fullGraderConfig: publicCfg as unknown as RegexRouletteConfig,
+      fullGraderConfig: publicCfg as unknown as FullGraderConfig,
     };
   }
 
