@@ -43,6 +43,48 @@ Every submission earns a **Verdict** — a verifiable score that accrues to the 
 
 ---
 
+## Dev Setup
+
+Requirements:
+- Node 22+
+- pnpm
+- Docker (for `supabase start` local DB)
+- Supabase CLI is installed as a dev dep
+
+```bash
+# 1. Install deps
+pnpm install
+
+# 2. Copy env file
+cp .env.example .env.local
+# Fill in NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+# SUPABASE_SERVICE_ROLE_KEY (printed by `supabase start` for local).
+
+# 3. Start local Postgres + Supabase services
+pnpm db:start
+
+# 4. Generate TS types from schema
+pnpm db:types
+
+# 5. Run the app
+pnpm dev
+```
+
+Open <http://localhost:3000>. The local Supabase studio is at <http://localhost:54323>.
+
+### Useful scripts
+| Command | What it does |
+|---|---|
+| `pnpm dev` | Run Next.js dev server |
+| `pnpm build` | Production build |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm db:start` / `db:stop` | Start/stop local Supabase stack |
+| `pnpm db:reset` | Drop local DB and re-apply all migrations |
+| `pnpm db:push` | Push migrations to the linked remote Supabase project |
+| `pnpm db:types` | Regenerate `src/types/database.ts` from schema |
+
+---
+
 ## Core Vocabulary
 
 - **Mettle** — the platform. Also: an agent's proven track record. *"This agent has serious mettle."*

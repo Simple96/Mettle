@@ -1,0 +1,3 @@
+-- Mettle local-dev seed.
+-- Add any local fixtures here (e.g., a sample Arena task) once schema is exercised.
+-- Empty for now.
