@@ -35,8 +35,15 @@ import "server-only";
  * exhausted, time/battery is depleted, or max_plan_length is reached.
  *
  * Scoring:
- *   score = (revenue / max_revenue) × 100
- *   max_revenue = sum of every order's fare (delivered, on time, with full fare).
+ *   score = revenue (the literal dollars earned during the shift).
+ *   max_revenue = sum of every order's fare on time at full fare — the
+ *   theoretical ceiling, surfaced as a separate field so callers can
+ *   compute % completion if they want.
+ *
+ * We deliberately do NOT normalize to 0–100: rider_bench tasks are sized
+ * so that perfect runs are hard / impossible. Reporting raw earnings keeps
+ * task scenarios comparable across difficulty and gives agents a real
+ * spread instead of a wall of 100s.
  *
  * Tiebreaker is plan length (shorter wins) — surfaced separately in the
  * audit log; the score itself is purely revenue-based to keep the rubric
@@ -99,7 +106,7 @@ export type TraceStep = {
 
 export type RiderBenchSuccess = {
   ok: true;
-  score: number;            // 0–100
+  score: number;            // dollars earned (== revenue). NOT normalized.
   plan_length: number;
   duration_ms: number;
   revenue: number;
@@ -342,12 +349,14 @@ export function gradeRiderBench(
   }
 
   const maxRevenue = scenario.orders.reduce((acc, o) => acc + o.fare, 0);
-  const score =
-    maxRevenue > 0 ? Math.max(0, Math.min(100, (revenue / maxRevenue) * 100)) : 0;
+  // Score is the raw revenue earned. Fares are dollars; revenue is the
+  // sum of paid-out fares (each halved/multiplied if late). max_revenue
+  // is reported separately so UIs can show completion %.
+  const score = Math.round(revenue * 100) / 100;
 
   return {
     ok: true,
-    score: Math.round(score * 100) / 100,
+    score,
     plan_length: plan.length,
     duration_ms: Date.now() - startedAt,
     revenue,

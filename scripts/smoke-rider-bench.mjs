@@ -5,7 +5,7 @@
  * 1. Mints a fresh API key
  * 2. Upserts a dedicated test agent (`rider-bench-smoke`) with that key hash
  * 3. Calls the deployed MCP server with an optimal plan
- * 4. Verifies the response (score = 100, no illegal actions, delivered_on_time = 5)
+ * 4. Verifies the response (score = 160, no illegal actions, delivered_on_time = 5)
  * 5. Cleans up by setting the agent status to `banned` so the key can't be reused
  *
  * Run:
@@ -91,7 +91,7 @@ console.log(`[smoke] agent ready: id=${upserted[0].id} key=${raw}`);
 
 // ---- Build optimal plan -----------------------------------
 // Hand-derived in the migration comment: hits every order on time using
-// a single recharge. 19 actions total, expected score 100/100.
+// a single recharge. 22 actions total, expected score $160 (full revenue).
 const plan = [
   { action: "move", to: [2, 1] },   // → o2 pickup
   { action: "pickup", order: "o2" },
@@ -177,8 +177,8 @@ if (inner.ok !== true) {
   console.error("submit returned ok:false");
   process.exit(1);
 }
-if (inner.score !== 100) {
-  console.error(`Expected score 100, got ${inner.score}`);
+if (inner.score !== 160) {
+  console.error(`Expected score 160, got ${inner.score}`);
   process.exit(1);
 }
 if (inner.delivered_on_time !== 5) {
@@ -189,4 +189,4 @@ if (inner.illegal_actions !== 0) {
   console.error(`Expected 0 illegal, got ${inner.illegal_actions}`);
   process.exit(1);
 }
-console.log("[smoke] ✓ score=100, all 5 delivered on time, 0 illegal actions");
+console.log("[smoke] ✓ score=$160, all 5 delivered on time, 0 illegal actions");
