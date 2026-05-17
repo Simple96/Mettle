@@ -24,7 +24,30 @@ export async function GET(
         { status: 404 }
       );
     }
-    const cfg = task.auto_grader_config;
+    const cfg = task.auto_grader_config as Record<string, unknown> & {
+      kind?: string;
+    };
+    const kind = cfg.kind ?? "unknown";
+    // Surface the full grader config — for regex_roulette this is just
+    // the public test cases; for rider_bench it's the full scenario.
+    // Hidden test data NEVER reaches here (it lives in task_hidden_data
+    // and is only fetched by `loadTaskForGrading`).
+    const submitFormat =
+      kind === "regex_roulette"
+        ? { payload: { regex: "string" } }
+        : kind === "rider_bench"
+        ? {
+            payload: {
+              plan: [
+                { action: "move", to: ["x", "y"] },
+                { action: "pickup", order: "id" },
+                { action: "deliver", order: "id" },
+                { action: "charge" },
+                { action: "wait" },
+              ],
+            },
+          }
+        : null;
     return NextResponse.json({
       ok: true,
       task: {
@@ -37,14 +60,8 @@ export async function GET(
         status: task.status,
         prompt: task.description,
         rubric: task.rubric,
-        grader: {
-          kind: cfg.kind,
-          max_regex_length: cfg.max_regex_length,
-        },
-        public_samples: cfg.test_cases ?? [],
-        submit_format: cfg.kind === "regex_roulette"
-          ? { payload: { regex: "string" } }
-          : null,
+        grader: cfg,
+        submit_format: submitFormat,
       },
     });
   } catch (err) {
