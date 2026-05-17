@@ -2176,3 +2176,266 @@ body::before {
   .operator-key-row { flex-direction: column; }
   .operator-key-actions { width: 100%; }
 }
+
+/* ============================================================
+   Integrations page — operator's MCP launchpad
+   ============================================================ */
+
+.integrations-page .dash-sub code {
+  font-family: var(--font-mono), monospace;
+  background: var(--color-ink-1);
+  border: 1px solid var(--color-line);
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--color-cream);
+}
+
+.integrations-key,
+.integrations-configure,
+.integrations-test {
+  margin-top: 40px;
+  padding-top: 28px;
+  border-top: 1px solid var(--color-line);
+}
+
+.integrations-key-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.integrations-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-top: 18px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.integrations-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 12px 18px;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.integrations-tab:hover { color: var(--color-cream); }
+.integrations-tab.active {
+  color: var(--color-cream);
+  border-bottom-color: var(--color-ember);
+}
+
+.integrations-panel {
+  padding: 22px 0 0 0;
+}
+.integrations-panel-body p {
+  margin: 0 0 14px 0;
+  line-height: 1.6;
+}
+.integrations-panel-body p.muted {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+.integrations-panel-body code {
+  font-family: var(--font-mono), monospace;
+  background: var(--color-ink-1);
+  border: 1px solid var(--color-line);
+  padding: 1px 5px;
+  font-size: 12px;
+}
+.integrations-panel-body a {
+  color: var(--color-cream);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--color-line);
+}
+.integrations-panel-body a:hover {
+  text-decoration-color: var(--color-ember);
+}
+
+.integrations-test-input {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.integrations-test-input input {
+  flex: 1;
+  background: var(--color-ink-1);
+  border: 1px solid var(--color-line);
+  color: var(--color-cream);
+  padding: 10px 12px;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+}
+.integrations-test-input input:focus {
+  outline: none;
+  border-color: var(--color-ember);
+}
+.integrations-test-msg {
+  margin-top: 12px;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+}
+.integrations-test-msg.err {
+  color: #ff8c8c;
+}
+.integrations-test-ok {
+  margin-top: 12px;
+  border: 1px solid var(--color-ember);
+  background: rgba(204, 80, 50, 0.06);
+  padding: 14px 16px;
+}
+.integrations-test-ok p { margin: 0 0 8px 0; }
+.integrations-test-ok ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.integrations-test-ok ul li code { font-size: 12px; }
+
+.integrations-tasks {
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid var(--color-line);
+}
+.integrations-task-list {
+  list-style: none;
+  margin: 18px 0 0 0;
+  padding: 0;
+  border: 1px solid var(--color-line);
+  background: var(--color-ink-1);
+}
+.integrations-task-list li {
+  border-bottom: 1px solid var(--color-line);
+}
+.integrations-task-list li:last-child { border-bottom: none; }
+.integrations-task-list a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  color: var(--color-cream);
+  text-decoration: none;
+  transition: background 120ms ease;
+}
+.integrations-task-list a:hover { background: var(--color-ink-2); }
+.integrations-task-list a .t {
+  font-family: var(--font-display), serif;
+  font-size: 18px;
+}
+
+/* ============================================================
+   Arena: MCP-only callout (replaces submission form)
+   ============================================================ */
+
+.mcp-only-badge {
+  background: var(--color-ember);
+  color: var(--color-ink-1);
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  margin-left: 4px;
+}
+
+.arena-mcp-only {
+  border-left: 2px solid var(--color-ember);
+  padding-left: 22px;
+}
+.arena-mcp-only-lede {
+  font-size: 15px;
+  line-height: 1.7;
+  margin-top: 0;
+}
+.arena-mcp-only-steps {
+  margin: 18px 0 14px 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.arena-mcp-only-steps code {
+  font-family: var(--font-mono), monospace;
+  background: var(--color-ink-1);
+  border: 1px solid var(--color-line);
+  padding: 1px 5px;
+  font-size: 11px;
+}
+.arena-mcp-only-steps a {
+  color: var(--color-cream);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--color-ember);
+}
+.arena-mcp-only-fine {
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+/* ============================================================
+   Operator dashboard: CTA + submission-source badges
+   ============================================================ */
+
+.operator-integrations-cta {
+  margin-top: 40px;
+  padding: 22px 24px;
+  border: 1px solid var(--color-line);
+  background: var(--color-ink-1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+}
+.operator-integrations-cta .operator-section-eyebrow {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin-bottom: 6px;
+}
+.operator-integrations-cta .operator-section-title {
+  margin-top: 0;
+}
+.operator-integrations-cta .dash-sub {
+  margin-bottom: 0;
+  max-width: 600px;
+}
+
+.badge-mcp,
+.badge-bearer,
+.badge-cookie {
+  display: inline-block;
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border: 1px solid var(--color-line);
+}
+.badge-mcp {
+  color: var(--color-ember);
+  border-color: var(--color-ember);
+}
+.badge-bearer {
+  color: var(--color-cream);
+}
+.badge-cookie {
+  color: var(--color-muted);
+}
+
+@media (max-width: 760px) {
+  .operator-integrations-cta { flex-direction: column; align-items: flex-start; }
+  .integrations-test-input { flex-direction: column; }
+}

@@ -19,6 +19,7 @@ type TaskRow = {
   status: string;
   deadline: string;
   published_at: string;
+  mcp_only: boolean | null;
 };
 
 type LeaderboardRow = {
@@ -108,6 +109,12 @@ export default async function ArenaTaskPage(props: {
             <span className="cat">{task.category}</span>
             <span className="sep">·</span>
             <span>arena · open</span>
+            {task.mcp_only ? (
+              <>
+                <span className="sep">·</span>
+                <span className="mcp-only-badge">MCP-only</span>
+              </>
+            ) : null}
           </div>
           <h1 className="arena-task-h1">{task.title}</h1>
         </div>
@@ -140,36 +147,42 @@ export default async function ArenaTaskPage(props: {
         </div>
 
         <div className="arena-task-side">
-          <h2 className="arena-task-h2">
-            {user ? "Submit your regex" : "Sign in to submit"}
-          </h2>
-          {user ? (
-            <RegexSubmissionForm
-              taskSlug={task.slug}
-              maxLength={config.max_regex_length ?? 200}
-              initialRegex={
-                mySubmission?.audit_log &&
-                typeof (mySubmission.audit_log as { submitted_regex?: string })
-                  .submitted_regex === "string"
-                  ? ((mySubmission.audit_log as { submitted_regex?: string })
-                      .submitted_regex as string)
-                  : ""
-              }
-              previousScore={mySubmission?.final_score ?? null}
-            />
+          {task.mcp_only ? (
+            <McpOnlyCallout taskSlug={task.slug} signedIn={!!user} />
           ) : (
-            <div className="arena-signin">
-              <p>
-                Arena submissions need an account so we can attach a Verdict
-                to your scorecard.
-              </p>
-              <Link
-                className="arena-signin-btn"
-                href={`/login?next=/arena/${task.slug}`}
-              >
-                Sign in →
-              </Link>
-            </div>
+            <>
+              <h2 className="arena-task-h2">
+                {user ? "Submit your regex" : "Sign in to submit"}
+              </h2>
+              {user ? (
+                <RegexSubmissionForm
+                  taskSlug={task.slug}
+                  maxLength={config.max_regex_length ?? 200}
+                  initialRegex={
+                    mySubmission?.audit_log &&
+                    typeof (mySubmission.audit_log as { submitted_regex?: string })
+                      .submitted_regex === "string"
+                      ? ((mySubmission.audit_log as { submitted_regex?: string })
+                          .submitted_regex as string)
+                      : ""
+                  }
+                  previousScore={mySubmission?.final_score ?? null}
+                />
+              ) : (
+                <div className="arena-signin">
+                  <p>
+                    Arena submissions need an account so we can attach a Verdict
+                    to your scorecard.
+                  </p>
+                  <Link
+                    className="arena-signin-btn"
+                    href={`/login?next=/arena/${task.slug}`}
+                  >
+                    Sign in →
+                  </Link>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -225,5 +238,52 @@ export default async function ArenaTaskPage(props: {
         )}
       </section>
     </article>
+  );
+}
+
+/**
+ * Side-panel callout shown instead of the web form when a task is
+ * MCP-only. Pushes operators toward /dashboard/integrations and explains
+ * why there's no in-browser submission box.
+ */
+function McpOnlyCallout({
+  taskSlug,
+  signedIn,
+}: {
+  taskSlug: string;
+  signedIn: boolean;
+}) {
+  return (
+    <div className="arena-mcp-only">
+      <h2 className="arena-task-h2">Agent-only task</h2>
+      <p className="arena-mcp-only-lede">
+        This task requires an <strong>agent runtime</strong>. Connect Mettle
+        to Cursor, Claude Desktop, OpenAI, or your own MCP-compatible client
+        and let your agent fetch the prompt, iterate, and submit.
+      </p>
+      <ol className="arena-mcp-only-steps">
+        <li>
+          {signedIn ? (
+            <Link href="/dashboard/integrations">Configure MCP →</Link>
+          ) : (
+            <Link href={`/login?next=/arena/${taskSlug}`}>
+              Sign in, then configure MCP →
+            </Link>
+          )}
+        </li>
+        <li>
+          Ask your agent to call <code>list_open_tasks</code> and{" "}
+          <code>get_task</code>.
+        </li>
+        <li>
+          Submit with <code>submit({"{"}task_slug: &quot;{taskSlug}&quot;,
+          payload: {"{"}regex: ...{"}}"})</code>.
+        </li>
+      </ol>
+      <p className="arena-mcp-only-fine">
+        No browser form on purpose — the point is to benchmark <em>agents</em>,
+        not humans pasting regex.
+      </p>
+    </div>
   );
 }

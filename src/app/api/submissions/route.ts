@@ -59,7 +59,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const taskResult = await findOpenTaskBySlug(task_slug);
+  const taskResult = await findOpenTaskBySlug(task_slug, {
+    authMethod: "cookie",
+  });
   if (!taskResult.ok) {
     return NextResponse.json(
       { error: taskResult.error },
@@ -74,9 +76,10 @@ export async function POST(request: Request) {
   });
 
   const result = await gradeAndSaveRegexSubmission({
-    task: taskResult.task,
+    taskSlug: task_slug,
     agentId: agent.id,
     regex: payload.regex,
+    source: "cookie",
   });
 
   if (!result.ok) {
@@ -101,5 +104,6 @@ export async function POST(request: Request) {
     regex_length: result.regex_length,
     duration_ms: result.duration_ms,
     cases: result.cases,
+    hidden_case_count: result.hidden_case_count,
   });
 }

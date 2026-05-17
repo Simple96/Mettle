@@ -3,9 +3,9 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   gradeRegexRoulette,
-  type RegexRouletteConfig,
   type CaseResult,
 } from "@/lib/grading/regex-roulette";
+import { loadTaskForGrading } from "@/lib/tasks";
 
 export type SubmissionTask = {
   id: string;
@@ -14,14 +14,22 @@ export type SubmissionTask = {
   category: string;
   status: string;
   title: string;
+  mcp_only: boolean;
   auto_grader_config: unknown;
 };
 
+export type AuthMethod = "cookie" | "bearer" | "mcp";
+
 /**
- * Look up a task by slug, validating it's open and uses a grader we support.
+ * Look up a task by slug, validate it's open, the grader is supported, AND
+ * that the caller's auth method is allowed for this task.
+ *
+ * MCP-only tasks reject cookie-auth submissions and direct the operator to
+ * the integrations page instead.
  */
 export async function findOpenTaskBySlug(
-  slug: string
+  slug: string,
+  opts: { authMethod: AuthMethod } = { authMethod: "cookie" }
 ): Promise<
   | { ok: true; task: SubmissionTask }
   | { ok: false; status: number; error: string }
@@ -29,13 +37,16 @@ export async function findOpenTaskBySlug(
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("tasks")
-    .select("id,slug,type,category,status,title,auto_grader_config")
+    .select(
+      "id,slug,type,category,status,title,mcp_only,auto_grader_config"
+    )
     .eq("slug", slug)
     .maybeSingle();
 
   if (error || !data) return { ok: false, status: 404, error: "task not found" };
 
-  const task = data as SubmissionTask;
+  const task = { ...(data as Omit<SubmissionTask, "mcp_only">), mcp_only: (data as { mcp_only?: boolean | null }).mcp_only ?? false } as SubmissionTask;
+
   if (task.status !== "open") {
     return {
       ok: false,
@@ -43,6 +54,16 @@ export async function findOpenTaskBySlug(
       error: `task is ${task.status}, not accepting submissions`,
     };
   }
+
+  if (task.mcp_only && opts.authMethod === "cookie") {
+    return {
+      ok: false,
+      status: 403,
+      error:
+        "This task is MCP-only. Connect an agent via /dashboard/integrations and submit programmatically.",
+    };
+  }
+
   const cfg = task.auto_grader_config as { kind?: string } | null;
   if (!cfg || cfg.kind !== "regex_roulette") {
     return {
@@ -54,6 +75,22 @@ export async function findOpenTaskBySlug(
   return { ok: true, task };
 }
 
+/**
+ * Self-reported runtime metadata attached to a submission. Optional; loose
+ * schema by design. Recommended fields documented in AGENT_RUNTIME.md §4.6.
+ */
+export type SubmissionRuntime = {
+  model?: string;
+  provider?: string;
+  client?: string;
+  llm_calls?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  duration_ms?: number;
+  // Free-form extras allowed; only documented fields render in UI.
+  [k: string]: unknown;
+};
+
 export type SubmissionResult =
   | {
       ok: true;
@@ -63,7 +100,16 @@ export type SubmissionResult =
       total: number;
       regex_length: number;
       duration_ms: number;
+      /**
+       * Per-case results for ONLY the public test cases. Hidden cases never
+       * appear here, even though they are part of the score.
+       */
       cases: CaseResult[];
+      /**
+       * How many of the cases were graded total (public + hidden). Useful
+       * for the agent to know "I was graded on N cases, you see X."
+       */
+      hidden_case_count: number;
     }
   | {
       ok: false;
@@ -73,19 +119,40 @@ export type SubmissionResult =
     };
 
 /**
- * Grades a regex submission for `agentId` on `task` and persists both the
- * `submissions` upsert and an immutable `verdicts` row.
+ * Grades a regex submission and persists submission + verdict.
  *
- * Shared between the cookie-auth UI endpoint (/api/submissions) and the
- * bearer-token agent API (/api/v1/submissions).
+ * Loads hidden test cases via `loadTaskForGrading` (admin client / RLS-bypass)
+ * and runs the grader over the merged public+hidden set. The response and
+ * `audit_log` only contain PUBLIC case results — hidden cases are never
+ * surfaced anywhere a client can read them.
+ *
+ * Shared between:
+ *   - /api/submissions          (cookie auth, web form)
+ *   - /api/v1/submissions       (bearer auth, REST)
+ *   - MCP tool `submit`         (MCP transport)
  */
 export async function gradeAndSaveRegexSubmission(input: {
-  task: SubmissionTask;
+  taskSlug: string;
   agentId: string;
   regex: string;
+  runtime?: SubmissionRuntime;
+  // Which surface the submission came through; recorded in audit log.
+  source?: AuthMethod;
 }): Promise<SubmissionResult> {
-  const config = input.task.auto_grader_config as RegexRouletteConfig;
-  const result = gradeRegexRoulette(input.regex, config);
+  const loaded = await loadTaskForGrading(input.taskSlug);
+  if (!loaded) {
+    return { ok: false, status: 404, error: "task not found" };
+  }
+  const { task, fullGraderConfig } = loaded;
+
+  const publicCfg = (task.auto_grader_config ?? {}) as {
+    test_cases?: Array<unknown>;
+  };
+  const publicCount = Array.isArray(publicCfg.test_cases)
+    ? publicCfg.test_cases.length
+    : 0;
+
+  const result = gradeRegexRoulette(input.regex, fullGraderConfig);
 
   if (!result.ok) {
     return {
@@ -96,13 +163,23 @@ export async function gradeAndSaveRegexSubmission(input: {
     };
   }
 
+  // SPLIT cases: the first `publicCount` are public; the rest are hidden.
+  // We only ever return / persist the public ones.
+  const publicCases = result.cases.slice(0, publicCount);
+  const hiddenCaseCount = Math.max(0, result.cases.length - publicCount);
+
   const admin = createAdminClient();
   const auditLog = {
     grader: "regex_roulette",
     submitted_regex: input.regex,
     regex_length: result.regex_length,
     duration_ms: result.duration_ms,
-    cases: result.cases,
+    // Only public-case results in the audit log; hidden case results are
+    // intentionally discarded.
+    cases: publicCases,
+    hidden_case_count: hiddenCaseCount,
+    runtime: input.runtime ?? null,
+    source: input.source ?? null,
   };
   const nowIso = new Date().toISOString();
 
@@ -110,7 +187,7 @@ export async function gradeAndSaveRegexSubmission(input: {
     .from("submissions")
     .upsert(
       {
-        task_id: input.task.id,
+        task_id: task.id,
         agent_id: input.agentId,
         artifact_path: null,
         status: "judged",
@@ -139,8 +216,8 @@ export async function gradeAndSaveRegexSubmission(input: {
   await admin.from("verdicts").insert({
     agent_id: input.agentId,
     submission_id: upserted.id as string,
-    task_category: input.task.category,
-    task_type: input.task.type,
+    task_category: task.category,
+    task_type: task.type,
     score: result.score,
     rank: null,
     elo_delta: null,
@@ -154,6 +231,7 @@ export async function gradeAndSaveRegexSubmission(input: {
     total: result.total,
     regex_length: result.regex_length,
     duration_ms: result.duration_ms,
-    cases: result.cases,
+    cases: publicCases,
+    hidden_case_count: hiddenCaseCount,
   };
 }

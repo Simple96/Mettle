@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireOnboardedProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -25,6 +26,14 @@ type VerdictRow = {
   submission_id: string | null;
 };
 
+type RecentSubmission = {
+  id: string;
+  final_score: number;
+  finalized_at: string;
+  audit_log: { source?: string | null } | null;
+  task: { slug: string; title: string };
+};
+
 export default async function OperatorPage() {
   const profile = await requireOnboardedProfile();
   if (profile.role === "publisher") redirect("/dashboard");
@@ -45,14 +54,27 @@ export default async function OperatorPage() {
   // can paginate once usage demands it).
   const agentIds = agents.map((a) => a.id);
   let recentVerdicts: VerdictRow[] = [];
+  let recentSubs: RecentSubmission[] = [];
   if (agentIds.length > 0) {
-    const { data } = await admin
-      .from("verdicts")
-      .select("id,score,task_type,task_category,earned_at,submission_id")
-      .in("agent_id", agentIds)
-      .order("earned_at", { ascending: false })
-      .limit(8);
-    recentVerdicts = (data ?? []) as unknown as VerdictRow[];
+    const [{ data: vd }, { data: sd }] = await Promise.all([
+      admin
+        .from("verdicts")
+        .select("id,score,task_type,task_category,earned_at,submission_id")
+        .in("agent_id", agentIds)
+        .order("earned_at", { ascending: false })
+        .limit(8),
+      admin
+        .from("submissions")
+        .select(
+          "id,final_score,finalized_at,audit_log,task:tasks!inner(slug,title)"
+        )
+        .in("agent_id", agentIds)
+        .eq("status", "judged")
+        .order("finalized_at", { ascending: false })
+        .limit(8),
+    ]);
+    recentVerdicts = (vd ?? []) as unknown as VerdictRow[];
+    recentSubs = (sd ?? []) as unknown as RecentSubmission[];
   }
 
   return (
@@ -86,10 +108,69 @@ export default async function OperatorPage() {
         </div>
       )}
 
+      {agents.length > 0 ? (
+        <section className="operator-integrations-cta">
+          <div>
+            <div className="operator-section-eyebrow mono">
+              Run agents in <strong>your</strong> environment
+            </div>
+            <h2 className="operator-section-title">
+              Connect Mettle&apos;s MCP server
+            </h2>
+            <p className="dash-sub">
+              Plug Cursor, Claude Desktop, OpenAI, or any MCP-compatible
+              client into <code>{env.NEXT_PUBLIC_APP_URL}/api/mcp/v1</code> and
+              let your agent fetch tasks and submit programmatically. You pay
+              your own LLM costs; we record the verdict.
+            </p>
+          </div>
+          <Link href="/dashboard/integrations" className="btn-ghost-sm">
+            Configure MCP →
+          </Link>
+        </section>
+      ) : null}
+
       <ApiQuickstart
         appUrl={env.NEXT_PUBLIC_APP_URL}
         sampleSlug="regex-roulette-ipv4"
       />
+
+      <section className="operator-recent">
+        <div className="operator-section-head">
+          <h2 className="operator-section-title">Recent submissions</h2>
+          <span className="muted mono">{recentSubs.length} shown</span>
+        </div>
+        {recentSubs.length === 0 ? (
+          <p className="muted">No submissions yet.</p>
+        ) : (
+          <table className="operator-verdict-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Task</th>
+                <th>Via</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentSubs.map((s) => (
+                <tr key={s.id}>
+                  <td className="mono">{formatWhen(s.finalized_at)}</td>
+                  <td>
+                    <Link href={`/arena/${s.task.slug}`}>{s.task.title}</Link>
+                  </td>
+                  <td>
+                    <SubmissionSourceBadge source={s.audit_log?.source ?? null} />
+                  </td>
+                  <td className="mono">
+                    <strong>{Number(s.final_score).toFixed(2)}</strong>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       <section className="operator-recent">
         <div className="operator-section-head">
@@ -125,6 +206,13 @@ export default async function OperatorPage() {
       </section>
     </div>
   );
+}
+
+function SubmissionSourceBadge({ source }: { source: string | null }) {
+  if (source === "mcp") return <span className="badge-mcp mono">mcp</span>;
+  if (source === "bearer") return <span className="badge-bearer mono">api</span>;
+  if (source === "cookie") return <span className="badge-cookie mono">web</span>;
+  return <span className="muted mono">—</span>;
 }
 
 function formatWhen(iso: string): string {

@@ -18,6 +18,20 @@ const Body = z.object({
   payload: z.object({
     regex: z.string().min(1).max(200),
   }),
+  // Optional self-reported runtime metadata (model, tokens, duration, …).
+  // Loose schema by design; documented fields render on the leaderboard.
+  runtime: z
+    .object({
+      model: z.string().optional(),
+      provider: z.string().optional(),
+      client: z.string().optional(),
+      llm_calls: z.number().int().nonnegative().optional(),
+      input_tokens: z.number().int().nonnegative().optional(),
+      output_tokens: z.number().int().nonnegative().optional(),
+      duration_ms: z.number().int().nonnegative().optional(),
+    })
+    .passthrough()
+    .optional(),
 });
 
 /**
@@ -90,10 +104,12 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  const { task_slug, payload } = parsed.data;
+  const { task_slug, payload, runtime } = parsed.data;
 
   // ---- Resolve task --------------------------------------------------------
-  const taskResult = await findOpenTaskBySlug(task_slug);
+  const taskResult = await findOpenTaskBySlug(task_slug, {
+    authMethod: "bearer",
+  });
   if (!taskResult.ok) {
     return NextResponse.json(
       { error: taskResult.error },
@@ -103,9 +119,11 @@ export async function POST(request: Request) {
 
   // ---- Grade + save --------------------------------------------------------
   const result = await gradeAndSaveRegexSubmission({
-    task: taskResult.task,
+    taskSlug: task_slug,
     agentId: agentRow.id as string,
     regex: payload.regex,
+    runtime,
+    source: "bearer",
   });
 
   if (!result.ok) {
@@ -132,6 +150,8 @@ export async function POST(request: Request) {
     total: result.total,
     regex_length: result.regex_length,
     duration_ms: result.duration_ms,
+    hidden_case_count: result.hidden_case_count,
+    public_cases: result.cases,
   });
 }
 
