@@ -1,0 +1,146 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  extractBearerKey,
+  hashApiKey,
+  hashesEqual,
+} from "@/lib/api-keys";
+import {
+  findOpenTaskBySlug,
+  gradeAndSaveRegexSubmission,
+} from "@/lib/submissions";
+
+export const runtime = "nodejs";
+
+const Body = z.object({
+  task_slug: z.string().trim().min(1).max(120),
+  payload: z.object({
+    regex: z.string().min(1).max(200),
+  }),
+});
+
+/**
+ * POST /api/v1/submissions
+ *
+ * Bearer-token authenticated. The stable, programmatic submission endpoint
+ * that agents (or `curl`) call. Unlike /api/submissions (cookie-auth), this
+ * NEVER auto-creates an agent — the API key already identifies one.
+ *
+ * Headers
+ *   Authorization: Bearer mtl_<32hex>
+ *
+ * Body
+ *   {
+ *     "task_slug": "regex-roulette-ipv4",
+ *     "payload": { "regex": "^(\\d{1,3}\\.){3}\\d{1,3}$" }
+ *   }
+ */
+export async function POST(request: Request) {
+  // ---- AuthN ---------------------------------------------------------------
+  const presented = extractBearerKey(request.headers.get("authorization"));
+  if (!presented) {
+    return NextResponse.json(
+      {
+        error:
+          "Missing or malformed Authorization header. Expected: Authorization: Bearer mtl_<key>",
+      },
+      { status: 401 }
+    );
+  }
+  const presentedHash = hashApiKey(presented);
+  const prefix = presented.slice(0, 8);
+
+  const admin = createAdminClient();
+  const { data: agentRow, error: agentErr } = await admin
+    .from("agents")
+    .select("id,slug,name,status,operator_id,api_key_hash")
+    .eq("api_key_prefix", prefix)
+    .maybeSingle();
+
+  if (agentErr || !agentRow) {
+    return NextResponse.json(
+      { error: "Invalid API key." },
+      { status: 401 }
+    );
+  }
+  // Constant-time hash compare — defense against length-extension / timing.
+  if (!hashesEqual(presentedHash, (agentRow.api_key_hash as string) ?? "")) {
+    return NextResponse.json(
+      { error: "Invalid API key." },
+      { status: 401 }
+    );
+  }
+  if ((agentRow.status as string) !== "active") {
+    return NextResponse.json(
+      { error: `Agent is ${agentRow.status as string}, not active.` },
+      { status: 403 }
+    );
+  }
+
+  // ---- Validate body -------------------------------------------------------
+  const raw = await request.json().catch(() => null);
+  const parsed = Body.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error: "Bad request — need { task_slug, payload.regex }.",
+        details: parsed.error.flatten(),
+      },
+      { status: 400 }
+    );
+  }
+  const { task_slug, payload } = parsed.data;
+
+  // ---- Resolve task --------------------------------------------------------
+  const taskResult = await findOpenTaskBySlug(task_slug);
+  if (!taskResult.ok) {
+    return NextResponse.json(
+      { error: taskResult.error },
+      { status: taskResult.status }
+    );
+  }
+
+  // ---- Grade + save --------------------------------------------------------
+  const result = await gradeAndSaveRegexSubmission({
+    task: taskResult.task,
+    agentId: agentRow.id as string,
+    regex: payload.regex,
+  });
+
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error, reason: result.reason },
+      { status: result.status }
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    submission_id: result.submission_id,
+    agent: {
+      id: agentRow.id as string,
+      slug: agentRow.slug as string,
+      name: agentRow.name as string,
+    },
+    task: {
+      slug: taskResult.task.slug,
+      title: taskResult.task.title,
+    },
+    score: result.score,
+    raw_correct: result.raw_correct,
+    total: result.total,
+    regex_length: result.regex_length,
+    duration_ms: result.duration_ms,
+  });
+}
+
+export function GET() {
+  // Friendly 405 with a hint for anyone who pastes the URL into a browser.
+  return NextResponse.json(
+    {
+      error: "Method not allowed. Use POST with Authorization: Bearer mtl_<key>.",
+    },
+    { status: 405, headers: { Allow: "POST" } }
+  );
+}

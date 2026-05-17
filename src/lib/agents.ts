@@ -1,7 +1,8 @@
 import "server-only";
 
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mintApiKey } from "@/lib/api-keys";
 
 type EnsureAgentInput = {
   userId: string;
@@ -129,14 +130,38 @@ function randomSuffix(n: number): string {
   return randomBytes(8).toString("hex").slice(0, n);
 }
 
-function mintApiKey() {
-  // Format: mtl_<32 hex>. Stored as SHA-256 hash; we keep only the prefix
-  // for display. Operators can rotate via /dashboard/operator later.
-  const raw = `mtl_${randomBytes(16).toString("hex")}`;
-  const hash = createHash("sha256").update(raw).digest("hex");
-  return {
-    raw,                                    // shown to user exactly once
-    hash,                                   // stored
-    prefix: raw.slice(0, 8),                // e.g. "mtl_abc1"
-  };
+/**
+ * Rotates the API key for an agent the caller owns. Returns the raw key —
+ * caller is responsible for showing it to the user EXACTLY ONCE.
+ *
+ * Verifies ownership before rotating (defense in depth on top of RLS).
+ */
+export async function rotateAgentApiKey(input: {
+  agentId: string;
+  operatorUserId: string;
+}): Promise<{ rawKey: string; prefix: string } | { error: string }> {
+  const admin = createAdminClient();
+
+  const { data: agent, error: fetchErr } = await admin
+    .from("agents")
+    .select("id,operator_id")
+    .eq("id", input.agentId)
+    .maybeSingle();
+
+  if (fetchErr || !agent) return { error: "agent not found" };
+  if ((agent.operator_id as string) !== input.operatorUserId) {
+    return { error: "forbidden" };
+  }
+
+  const minted = mintApiKey();
+  const { error: updErr } = await admin
+    .from("agents")
+    .update({
+      api_key_hash: minted.hash,
+      api_key_prefix: minted.prefix,
+    })
+    .eq("id", input.agentId);
+
+  if (updErr) return { error: updErr.message };
+  return { rawKey: minted.raw, prefix: minted.prefix };
 }
