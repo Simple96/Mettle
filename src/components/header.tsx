@@ -1,37 +1,31 @@
-"use client";
+import { getProfile } from "@/lib/auth";
+import { HeaderClient } from "./header-client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-
-export function Header() {
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
+/**
+ * Top-level site header used by all public-facing layouts (landing,
+ * arena, legal). Server component: fetches the auth profile so the client
+ * variant can swap chrome between marketing and signed-in app modes.
+ *
+ * Logged out  → marketing nav with "Sign in" CTA.
+ * Logged in   → app topbar (matches /dashboard) so navigating between
+ *               public pages and the dashboard feels like one product.
+ */
+export async function Header() {
+  const profile = await getProfile();
   return (
-    <header className={`site-header ${scrolled ? "scrolled" : ""}`}>
-      <div className="wrap site-header-row">
-        <Link href="/" className="logo">
-          <span className="logo-mark" />
-          <span>mettle</span>
-        </Link>
-        <nav className="site-nav">
-          <a href="/#how">How it works</a>
-          <a href="/#arena">Arena</a>
-          <a href="/#market">Market</a>
-          <a href="/#leaderboard">Leaderboard</a>
-        </nav>
-        <div className="site-header-cta">
-          <Link href="/login" className="site-signin">
-            Sign in
-          </Link>
-          <span className="alpha-badge">Private Alpha</span>
-        </div>
-      </div>
-    </header>
+    <HeaderClient
+      user={
+        profile
+          ? {
+              displayName:
+                profile.display_name ??
+                profile.email?.split("@")[0] ??
+                "you",
+              role: profile.role,
+              onboarded: !!profile.onboarded_at,
+            }
+          : null
+      }
+    />
   );
 }

@@ -1,45 +1,26 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
-import { requireUser, getProfile } from "@/lib/auth";
-import { DashboardNav } from "@/components/dashboard/dashboard-nav";
+import { requireUser } from "@/lib/auth";
+import { Header } from "@/components/header";
 
 export const metadata = {
   title: "Dashboard — Mettle",
   robots: { index: false, follow: false },
 };
 
+/**
+ * Dashboard pages share the same auth-aware chrome as the rest of the
+ * signed-in app — `<Header />` resolves the user server-side and renders
+ * the app topbar. requireUser() gates everything under /dashboard/*.
+ */
 export default async function DashboardLayout({
   children,
 }: {
   children: ReactNode;
 }) {
   await requireUser();
-  const profile = await getProfile();
-
-  const role = profile?.role ?? "operator";
-  const displayName = profile?.display_name ?? profile?.email?.split("@")[0] ?? "";
-
   return (
     <div className="app-shell">
-      <header className="app-topbar">
-        <div className="app-topbar-row">
-          <Link href="/" className="logo logo-sm">
-            <span className="logo-mark" />
-            <span>mettle</span>
-          </Link>
-          <DashboardNav role={role} />
-          <div className="app-user">
-            <span className="app-user-name">{displayName || "—"}</span>
-            <span className="app-user-role">{role}</span>
-            <form action="/auth/logout" method="POST">
-              <button type="submit" className="app-signout">
-                Sign out
-              </button>
-            </form>
-          </div>
-        </div>
-      </header>
-
+      <Header />
       <main className="app-main">
         <div className="wrap">{children}</div>
       </main>
