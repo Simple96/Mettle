@@ -21,7 +21,12 @@ export function LoginForm({ next, initialError }: LoginFormProps) {
     setSubmitting(true);
 
     const supabase = createClient();
-    const emailRedirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+
+    // emailRedirectTo must match a Redirect URL allowlist entry in Supabase.
+    // The Magic Link email template uses `{{ .SiteURL }}/auth/confirm?...&next={{ .RedirectTo }}`
+    // — so this value flows through as the post-verification destination.
+    const finalDest = next.startsWith("/") ? next : "/dashboard";
+    const emailRedirectTo = `${window.location.origin}${finalDest}`;
 
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim().toLowerCase(),
