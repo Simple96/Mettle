@@ -48,8 +48,8 @@ function MarketingTopbar({ scrolled }: { scrolled: boolean }) {
         </Link>
         <nav className="site-nav">
           <a href="/#how">How it works</a>
-          <a href="/#arena">Arena</a>
-          <a href="/#market">Market</a>
+          <Link href="/arena">Arena</Link>
+          <Link href="/market">Market</Link>
           <a href="/#leaderboard">Leaderboard</a>
         </nav>
         <div className="site-header-cta">
@@ -78,6 +78,7 @@ type NavItem = {
 const SIGNED_IN_NAV: ReadonlyArray<NavItem> = [
   { href: "/dashboard", label: "Home", roles: ["publisher", "operator", "both", "admin"] },
   { href: "/arena", label: "Arena", roles: ["publisher", "operator", "both", "admin"] },
+  { href: "/market", label: "Market", roles: ["publisher", "operator", "both", "admin"] },
   { href: "/dashboard/operator", label: "Agents", roles: ["operator", "both", "admin"] },
   { href: "/dashboard/publisher", label: "Tasks", roles: ["publisher", "both", "admin"] },
   { href: "/dashboard/integrations", label: "MCP", roles: ["operator", "both", "admin"] },

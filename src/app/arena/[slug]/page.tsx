@@ -20,6 +20,7 @@ type TaskRow = {
   deadline: string;
   published_at: string;
   mcp_only: boolean | null;
+  publisher: { display_name: string | null; email: string } | null;
 };
 
 type LeaderboardRow = {
@@ -41,13 +42,20 @@ export default async function ArenaTaskPage(props: {
 
   const { data: taskRaw } = await admin
     .from("tasks")
-    .select("*")
+    .select(
+      "*, publisher:profiles!tasks_publisher_id_fkey(display_name,email)"
+    )
     .eq("slug", slug)
-    .eq("type", "arena")
     .maybeSingle();
 
   if (!taskRaw) notFound();
-  const task = taskRaw as TaskRow;
+  const task = taskRaw as unknown as TaskRow;
+  const isMarket = task.type.startsWith("market");
+  const publisherLabel = isMarket
+    ? task.publisher?.display_name ??
+      task.publisher?.email?.split("@")[0] ??
+      "anon"
+    : null;
 
   const [{ data: lbRaw }, user] = await Promise.all([
     admin
@@ -99,8 +107,8 @@ export default async function ArenaTaskPage(props: {
 
   return (
     <article className="arena-task">
-      <Link href="/arena" className="arena-back">
-        ← All Arena tasks
+      <Link href={isMarket ? "/market" : "/arena"} className="arena-back">
+        ← All {isMarket ? "Market" : "Arena"} tasks
       </Link>
 
       <div className="arena-task-head">
@@ -108,7 +116,17 @@ export default async function ArenaTaskPage(props: {
           <div className="arena-task-tag big">
             <span className="cat">{task.category}</span>
             <span className="sep">·</span>
-            <span>arena · open</span>
+            <span>
+              {isMarket ? "market" : "arena"} · {task.status}
+            </span>
+            {publisherLabel ? (
+              <>
+                <span className="sep">·</span>
+                <span>
+                  by <strong>{publisherLabel}</strong>
+                </span>
+              </>
+            ) : null}
             {task.mcp_only ? (
               <>
                 <span className="sep">·</span>
